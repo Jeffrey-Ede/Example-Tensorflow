@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-#os.environ["CUDA_VISIBLE_DEVICES"] = "1" #Specify GPUs to make visible to process
+os.environ["CUDA_VISIBLE_DEVICES"] = "0" #Specify GPUs visible to the process
 
 import argparse
 
@@ -41,8 +41,7 @@ slim = tf.contrib.slim
 """
 This example script demonstrates how to train neural networks using 
 TensorFlow version 1.7.0. It should work with other versions of 
-TensorFlow; however, some minor adjustments may be needed if you use
-another version.
+TensorFlow; however, some minor adjustments may be needed.
 
 TensorFlow can be installed with pip or another package manager e.g.
 pip install tensorflow-gpu==1.7.0 to install version 1.7.0.
@@ -66,7 +65,8 @@ Email: j.m.ede@warwick.ac.uk
 model_save_period = 1. #Save every this many hours
 model_save_period *= 3600 #Convert to s
 
-example_size = (256, 256) #Size of images the network will process
+example_size = [256, 256] #Size of images the network will process
+channels = 1 #Greyscale images have 1 channel
 
 #Number of pixels in examples
 example_px = 1
@@ -75,14 +75,14 @@ for x in example_size:
 
 #Amound of salt and pepper noise (white and black speckles) to add to examples. 
 #Pepper applied after and overrides salt
-salt = 0.02; pepper = 0.05 
+salt_prop = 0.03; pepper_prop = 0.08 
 
 data_dir = "my/train/val/test/directories/are/located/here/"
 if data_dir[-1] != '/':
     data_dir += '/'
 
 model_dir = "save/my/network/and/training/outputs/here/"
-if mode_dir[-1] != '/':
+if model_dir[-1] != '/':
     model_dir += '/'
 
 log_file = model_dir+"log.txt"
@@ -90,12 +90,18 @@ log_file = model_dir+"log.txt"
 shuffle_buffer_size = 5000
 num_parallel_calls = 4
 num_parallel_readers = 4
+num_intra_threads = 0
 prefetch_buffer_size = 10 #Prefetch up to this many examples from data processing pipeline
 batch_size = 1
 num_gpus = 1
 
+num_epochs = 100000000000 #Dataset effetively repeats indefinitely
+
 #Output example application of the neural network this often
 save_result_every_n_batches = 5000
+
+#Monitor performance on validation once for every this many training iterations
+val_skip_n = 10
 
 ## Building blocks for neural networks 
 
@@ -123,12 +129,12 @@ def conv2d(input, num_channels, kernel_size=3, stride=1, padding="SAME", transpo
                 kernel_size=kernel_size,
                 stride=stride,
                 padding=padding,
-                data_format=None,
+                data_format="NHWC",
                 rate=1,
                 activation_fn=tf.nn.relu,
                 normalizer_fn=None,
                 normalizer_params=None,
-                weights_initializer=initializers.xavier_initializer(),
+                weights_initializer=tf.contrib.layers.xavier_initializer(),
                 weights_regularizer=None,
                 biases_initializer=tf.zeros_initializer(),
                 biases_regularizer=None,
@@ -145,11 +151,11 @@ def conv2d(input, num_channels, kernel_size=3, stride=1, padding="SAME", transpo
                 kernel_size=kernel_size,
                 stride=stride,
                 padding=padding,
-                data_format=DATA_FORMAT_NHWC,
+                data_format="NHWC",
                 activation_fn=tf.nn.relu,
                 normalizer_fn=None,
                 normalizer_params=None,
-                weights_initializer=initializers.xavier_initializer(),
+                weights_initializer=tf.contrib.layers.xavier_initializer(),
                 weights_regularizer=None,
                 biases_initializer=tf.zeros_initializer(),
                 biases_regularizer=None,
@@ -176,8 +182,8 @@ def skip_2_residual_block(input, num_channels, kernel_size=3, padding='SAME'):
     when they acting on values at their sides
     """
 
-    x = conv2d(input, num_channels=num_channels, kerne_size=kernel_size)
-    x = conv2d(x, num_channelss=num_channels, kerne_size=kernel_size)
+    x = conv2d(input, num_channels=num_channels, kernel_size=kernel_size)
+    x = conv2d(x, num_channels=num_channels, kernel_size=kernel_size)
 
     x += input
 
@@ -222,11 +228,11 @@ def network(input, reuse=False):
         #Upsample back to output size using a transpositional convolution. Since
         #the spatial size is larger, we reduce the number of feature channels to
         #reduce the impact on performance
-        x = conv2d(input=x, num_channels=32, kernel_size=3, stride=2, deconv=True)
+        x = conv2d(input=x, num_channels=32, kernel_size=3, stride=2, transpositional=True)
 
         #Finally, we develop our output image. Since micrographs are greyscale, this only
-        #has 1 output channel. We use a 7x7 so the network can use a lot of values to make
-        #its final decision
+        #has 1 output channel. We use a 7x7 so the network can use a lot of information to make
+        #its final decision. 
         x = conv2d(input=input, num_channels=1, kernel_size=7)
 
     return x
@@ -284,8 +290,8 @@ def experiment(example_input, example_output, learning_rate, beta1):
 
 def flip_rotate(img):
     """
-    Applies a random combination of flip and rotation to an image, sometimes leaving the image
-    unchanged. This augments the dataset by a factor of 8.
+    Applies a random combination of flips and 90 degree rotations to an image, leaving 
+    the image unchanged 1/8 of the time. This augments the dataset by a factor of 8.
     """
 
     choice = np.random.randint(0, 8)
@@ -310,7 +316,8 @@ def flip_rotate(img):
 
 def load_image(addr, img_type=np.float32):
     """
-    Read a float32 image. In case of failure, return an image filled with zeros
+    Read a float32 image using its address. In case of failure, 
+    return an image filled with zeros
     """
     
     try:
@@ -336,7 +343,7 @@ def scale0to1(img):
     else:
         img = (img-min) / (max-min)
 
-    return img.astype(np.float32)
+    return img
 
 def preprocess(img):
     """
@@ -348,47 +355,25 @@ def preprocess(img):
 
     #Resize image if necessary, so that all examples have the same size
     if img.shape != example_size:
-        img = cv2.resize(img, example_size, interpolation=cv2.INTER_AREA)
+        img = cv2.resize(img, tuple(example_size), interpolation=cv2.INTER_AREA)
 
     img = scale0to1(img)
 
-    
-
-    return img
-
-def fill(data, invalid=None):
-    """
-    Replace the value of invalid 'data' cells (indicated by 'invalid') 
-    by the value of the nearest valid data cell
-
-    Input:
-        data:    numpy array of any dimension
-        invalid: a binary array of same shape as 'data'. True cells set where data
-                 value should be replaced.
-                 If None (default), use: invalid  = np.isnan(data)
-
-    Output: 
-        Return a filled array. 
-    """
-    #import numpy as np
-    #import scipy.ndimage as nd
-
-    if invalid is None: invalid = np.isnan(data)
-
-    ind = nd.distance_transform_edt(invalid, return_distances=False, return_indices=True)
-    return data[tuple(ind)]
+    return img.astype(np.float32)
 
 def gen_lq(img):
     """
-    Create low quality example that network will learn to create high-quality 
-    example from
+    Create low quality example that network will learn to create high-quality example from
     """
 
-    rand_numbers = np.random.rand(example_size[0], example_size)
+    lq = np.copy(img)
 
-    #Fill mask using nearest neighbours
-    lq = fill(lq, invalid=anti_select)
+    #Add noise based on random number values
+    rand_numbers = np.random.rand(example_size[0], example_size[1])
 
+    lq[rand_numbers > 1-salt_prop] = 1. #Salt
+    lq[rand_numbers < pepper_prop] = 0. #Pepper
+    
     return lq.astype(np.float32)
 
 def record_parser(record):
@@ -402,6 +387,11 @@ def record_parser(record):
     return lq, img
 
 def reshaper(img1, img2):
+    """
+    Function to be mapped accross dataset to ensure tensors yielded by dataset
+    iterators have the correct shapes
+    """
+
     img1 = tf.reshape(img1, example_size+[channels])
     img2 = tf.reshape(img2, example_size+[channels])
     return img1, img2
@@ -503,9 +493,9 @@ class RunConfig(tf.contrib.learn.RunConfig):
 
 def main():
     """
-    Manages data from pipeline. Inputs it to the the neural network(s), coordinates 
+    Manages data from pipeline, inputting it to neural network(s), coordinates 
     training, outputs performance statistics and provides a live-print out of 
-    network performance
+    network performance.
     """
 
     tf.reset_default_graph()
@@ -531,10 +521,7 @@ def main():
                 gpu_options=tf.GPUOptions(force_gpu_compatible=True))
 
             config = RunConfig(
-                session_config=sess_config, model_dir=job_dir)
-            hparams=tf.contrib.training.HParams(
-                is_chief=config.is_chief,
-                **hparams)
+                session_config=sess_config, model_dir=model_dir)
 
             #Training iterators
             example_input, example_output = input_fn(data_dir, 'train', batch_size, num_gpus)
@@ -564,7 +551,7 @@ def main():
                 beta1_ph = tf.placeholder(tf.float32, shape=())
 
                 #Create experiment. Tensors are returned in a dictionary so that they are easy to access by key
-                exp_dict = experiment(example_input_ph[0], example_output_ph[1], learning_rate, beta1_ph)
+                exp_dict = experiment(example_input_ph[0], example_output_ph[0], learning_rate_ph, beta1_ph)
 
                 #Group outputs into sets. This doesn't make sense when the experiment only returns a couple
                 #of tensors; however, it is likely to save time if the experiment returns many values
@@ -574,7 +561,7 @@ def main():
                 output_ops_names = ['restoration']
                 output_ops = [exp_dict[x] for x in output_ops_names]
 
-                monitoring_ops_names = ['Loss']
+                monitoring_ops_names = ['loss']
                 monitoring_ops = [exp_dict[x] for x in monitoring_ops_names]
 
                 print("Created experiment")
@@ -616,7 +603,9 @@ def main():
 
                 while True: #A quit() call at the end of training will break the loop
 
-                    while time.time()-time0 < modelSavePeriod:
+                    #Monitor time to save every time the specified save time period elapses
+                    time0 = time.time()
+                    while time.time()-time0 < model_save_period:
 
                         validating = bool(val_counter % val_skip_n)
                         if not validating:
@@ -626,18 +615,17 @@ def main():
                         if val_counter % val_skip_n: #Only increment counter on non-validation iterations
                             counter += 1
 
-                        #Implement a decaying learning rate schedule. Arbutrarilly, we will use the base 
+                        #Implement a decaying learning rate schedule. Arbitrarilly, we will use the base 
                         #learning rate for the first half of training, then stepwise linearly decay
                         #the learning rate to zero. Stepwise, rather than continuous, decay helps 
                         #prevent overfitting
-
                         if counter < total_iters/2:
-                            learning_rate = base_rate
+                            learning_rate = base_learning_rate
                         elif counter < total_iters:
                             rel_iters = counter - total_iters/2
-                            step = int(num_steps_in_lr_decay*rel_iters/(total_iters/2))
-
-                            learning_rate = base_rate * step / num_steps_in_lr_decay
+                            decay_iters = total_iters/2
+                            step = int(num_steps_in_lr_decay*rel_iters/decay_iters)
+                            learning_rate = base_learning_rate * (1 - step/num_steps_in_lr_decay)
                         else:
                             saver.save(sess, save_path=model_dir, global_step=counter)
                             quit()
@@ -649,9 +637,9 @@ def main():
                         #the graph. Importantly, everthing has to be numpy, rather than pure
                         #python variables.
                         feed_dict = { learning_rate_ph: np.float32(learning_rate),
-                                      beta1_ph = np.float32(beta1),
-                                      example_input_ph[0]: _example_input,
-                                      example_output_ph[0]: _example_output
+                                      beta1_ph: np.float32(beta1),
+                                      example_input_ph[0]: _example_input[0],
+                                      example_output_ph[0]: _example_output[0]
                                     }
 
                         #Save outputs occasionally. Defaults to saving once every 1000 iterations for the first
@@ -661,9 +649,9 @@ def main():
 
                             #Don't train on validation examples
                             if not val_counter % val_skip_n:
-                                results = sess.run( other_ops + output_ops, feed_dict=dict )
+                                results = sess.run( monitoring_ops + output_ops, feed_dict=feed_dict )
                             else:
-                                results = sess.run( other_ops + output_ops + train_ops, feed_dict=dict )
+                                results = sess.run( monitoring_ops + output_ops + train_ops, feed_dict=feed_dict )
 
                             monitored_stats = results[:len(monitoring_ops)]
                             output = results[len(monitoring_ops)]
@@ -688,15 +676,15 @@ def main():
                         else:
                             #Don't train on validation examples
                             if not val_counter % val_skip_n:
-                                results = sess.run( other_ops, feed_dict=dict )
+                                results = sess.run( monitoring_ops, feed_dict=feed_dict )
                             else:
-                                results = sess.run( other_ops + train_ops, feed_dict=dict )
+                                results = sess.run( monitoring_ops + train_ops, feed_dict=feed_dict )
 
                             monitored_stats = results[:len(monitoring_ops)]
 
                         #Prepare message for live performance update and to save to log file
                         my_network_name = "Fluffles-1"
-                        message = f"{my_networ_name}, Iter: {counter}, Val: {validating}"
+                        message = f"{my_network_name}, Iter: {counter}, Val: {validating}"
                         for name, val in zip(monitoring_ops_names, monitored_stats):
                             message += f", {name}: {val}"
 
@@ -709,7 +697,7 @@ def main():
 
                 #Final save at the end of training
                 saver.save(sess, save_path=model_dir, global_step=counter)
-                quit()
+                quit() #Ends script
 
     return 
 
