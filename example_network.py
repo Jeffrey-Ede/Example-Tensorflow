@@ -690,6 +690,7 @@ def main():
 
                         print(message)
 
+                        message += "\n"
                         try:
                             log.write(message)
                         except:
