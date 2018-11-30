@@ -3,7 +3,7 @@ from __future__ import division
 from __future__ import print_function
 
 import os
-os.environ["CUDA_VISIBLE_DEVICES"] = "0" #Specify GPUs visible to the process
+#os.environ["CUDA_VISIBLE_DEVICES"] = "0" #Specify GPUs visible to the process
 
 import argparse
 
@@ -47,9 +47,9 @@ TensorFlow can be installed with pip or another package manager e.g.
 pip install tensorflow-gpu==1.7.0 to install version 1.7.0.
 
 Other packages that are imported at the top of this script may not be 
-essential in this script; however, they generally useful. They are 
+essential in this script; however, they are generally useful. They are 
 included so this script will throw errors for any packages that you
-don't have so you know to install them
+don't have so you know to install them.
 
 In this script, we showcase a network that removes salt and pepper noise
 (white and black speckles) from images. Most of the code in this script is 
@@ -60,7 +60,7 @@ DD/MM/YYYY: 28/11/2018
 Email: j.m.ede@warwick.ac.uk
 """
 
-## State where resources are and which resources can be used at the top of the scriot
+## State where resources are and which resources can be used at the top of the script
 
 model_save_period = 1. #Save every this many hours
 model_save_period *= 3600 #Convert to s
@@ -73,7 +73,7 @@ example_px = 1
 for x in example_size:
     example_px *= x
 
-#Amound of salt and pepper noise (white and black speckles) to add to examples. 
+#Amount of salt and pepper noise (white and black speckles) to add to examples. 
 #Pepper applied after and overrides salt
 salt_prop = 0.03; pepper_prop = 0.08 
 
@@ -182,8 +182,8 @@ def skip_2_residual_block(input, num_channels, kernel_size=3, padding='SAME'):
     when they acting on values at their sides
     """
 
-    x = conv2d(input, num_channels=num_channels, kernel_size=kernel_size)
-    x = conv2d(x, num_channels=num_channels, kernel_size=kernel_size)
+    x = conv2d(input, num_channels=num_channels, kernel_size=kernel_size, padding=padding)
+    x = conv2d(x, num_channels=num_channels, kernel_size=kernel_size, padding=padding)
 
     x += input
 
@@ -199,15 +199,17 @@ def network(input, reuse=False):
     It is designed to showcase 
     - Downsampling using strided convolution to decrease spatial size, 
       reducing calculations
-    - Upsampling using transpotional strided convolution to increase spatial
+    - Upsampling using transpositional strided convolution to increase spatial
       size
     - Skip-2 residual blocks, a popular building block used for processing in 
       neural networks used for image translation
     input: A batch of corrupted images to restore
+    reuse: whether to reuse variables from another copy of this network that
+    has been graphed
     """
 
     #It's good practice to put each important part of your network in its own variable scope
-    #in case you want to reuse it with the same trainable variable (reuse=True) or to get
+    #in case you want to reuse it with the same trainable variables (reuse=True) or to get
     #a list of trainable variables in a scope to apply an optimizer to
     with tf.variable_scope("Main_Network", reuse=reuse):
 
@@ -231,7 +233,7 @@ def network(input, reuse=False):
         x = conv2d(input=x, num_channels=32, kernel_size=3, stride=2, transpositional=True)
 
         #Finally, we develop our output image. Since micrographs are greyscale, this only
-        #has 1 output channel. We use a 7x7 so the network can use a lot of information to make
+        #has 1 output channel. We use a 7x7 kernel so the network can use a lot of information to make
         #its final decision. 
         x = conv2d(input=input, num_channels=1, kernel_size=7)
 
@@ -253,8 +255,7 @@ def experiment(example_input, example_output, learning_rate, beta1):
     the momentum
 
     Returns: A dictionary containing performance statistics that can be used
-    to monitor the neural network's progress, its output and training 
-    operations
+    to monitor the neural network's progress, its output and training operations
     """
     
     #Restore examples
@@ -566,7 +567,8 @@ def main():
 
                 print("Created experiment")
 
-                #TensorFlow is written in C++ so TensorFlow variables must be initialized for use!
+                #TensorFlow is written and implemented in C++ so TensorFlow variables must be initialized 
+                #for use!
                 sess.run( tf.initialize_variables( set(tf.all_variables())-initialized_variables), 
                           feed_dict={beta1_ph: np.float32(0.9)} )
 
@@ -576,7 +578,7 @@ def main():
                 #Only keep models from last 2 checkpoints saved. This saves the ENTIRE session, so save 
                 #files can be quite big - a couple of GB in some cases. Deleting older models avoids 
                 #wasting space
-                saver = tf.train.Saver(max_to_keep=2) 
+                saver = tf.train.Saver(max_to_keep=2)
 
                 #Uncomment the line below to restore a saved session. Training will continue from the
                 #checkpoint as usual, although you might want to update the counter variable below
@@ -587,9 +589,9 @@ def main():
                 save_counter = counter
                 counter_init = counter+1
 
-                #From experience, this is a sensible learning rate to start training with
+                #From experience, this is a sensible learning rate to start training with here
                 base_learning_rate = 0.01 
-                #Goto value for the first moment of the momentum decay coefficient. It's a good choice
+                #0.9 is the goto value for the first moment of the momentum decay coefficient. It's a good choice
                 #for almost all networks
                 beta1 = 0.9 
 
@@ -617,7 +619,7 @@ def main():
 
                         #Implement a decaying learning rate schedule. Arbitrarilly, we will use the base 
                         #learning rate for the first half of training, then stepwise linearly decay
-                        #the learning rate to zero. Stepwise, rather than continuous, decay helps 
+                        #the learning rate to zero. Stepwise; rather than continuous, decay helps 
                         #prevent overfitting
                         if counter < total_iters/2:
                             learning_rate = base_learning_rate
