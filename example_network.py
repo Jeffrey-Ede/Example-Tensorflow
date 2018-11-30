@@ -62,7 +62,7 @@ Email: j.m.ede@warwick.ac.uk
 
 ## State where resources are and which resources can be used at the top of the script
 
-model_save_period = 1. #Save every this many hours
+model_save_period = 0.25 #Save every this many hours
 model_save_period *= 3600 #Convert to s
 
 example_size = [256, 256] #Size of images the network will process
@@ -95,7 +95,7 @@ prefetch_buffer_size = 10 #Prefetch up to this many examples from data processin
 batch_size = 1
 num_gpus = 1
 
-num_epochs = 100000000000 #Dataset effetively repeats indefinitely
+num_epochs = 100000000000 #Dataset effectively repeats indefinitely
 
 #Output example application of the neural network this often
 save_result_every_n_batches = 5000
@@ -112,7 +112,7 @@ def conv2d(input, num_channels, kernel_size=3, stride=1, padding="SAME", transpo
     input: tensor to convolute
     num_channels: number of sets of filter kernels to apply to the channels
     of the input tensor. This is the number of output channels
-    kernel_size: Size of kernels to learn to convolute accross the channels
+    kernel_size: Size of kernels to learn to convolute across the channels
     of the input tensor
     stride: Spatial stride to take between applications of kernels. A stride
     of 2 will half the output tensor's spatial size
@@ -247,7 +247,7 @@ def experiment(example_input, example_output, learning_rate, beta1):
     """
     This describes the configuration of neural networks and how they will
     be trained. 
-    example_input: Batch of examples to be processed by the neural network(s).
+    example_input: Batch of examples to be processed by the neural network(s)
     example_output: Batch of corresponding examples that the network is to
     be trained to output
     learning_rate: Scale loss by this amount during training
@@ -400,7 +400,13 @@ def reshaper(img1, img2):
 def input_fn(dir, subset, batch_size, num_shards):
     """
     Create a dataset from a list of filenames and shard batches from it for each GPU.
-    Returns iterators that generate examples
+    Returns iterators that generate examples. 
+    dir: directory contraining the train, val and test data subsets
+    subset: subset of data to iterate over e.g. "train"
+    batch_size: Number of examples grouped together for training. Typically,
+    this should be a multiple of the number of shards
+    num_shards: For multi-GPU training, batches must be broken into shards for each
+    GPU. Typically, num_shards is the number of GPUs to shard for.
     """
 
     with tf.device('/cpu:0'):
@@ -529,6 +535,8 @@ def main():
             #Validation iterators
             example_input_val, example_output_val = input_fn(data_dir, 'val', batch_size, num_gpus)
 
+            #Tensorflow session that will contain all variables and operations. When saving the session,
+            #all the variables in the session will be saved
             with tf.Session(config=sess_config) as sess:
 
                 print("Session started")
@@ -549,7 +557,7 @@ def main():
 
                 #Learning hyperparameters
                 learning_rate_ph = tf.placeholder(tf.float32)
-                beta1_ph = tf.placeholder(tf.float32, shape=())
+                beta1_ph = tf.placeholder(tf.float32, shape=()) #The "shape=()" is important
 
                 #Create experiment. Tensors are returned in a dictionary so that they are easy to access by key
                 exp_dict = experiment(example_input_ph[0], example_output_ph[0], learning_rate_ph, beta1_ph)
@@ -644,7 +652,7 @@ def main():
                                       example_output_ph[0]: _example_output[0]
                                     }
 
-                        #Save outputs occasionally. Defaults to saving once every 1000 iterations for the first
+                        #Save outputs occasionally. Defaults to saving once every 1_000 iterations for the first
                         #10_000 training iterations. This helps in spotting problems early.
                         if 0 <= counter <= 1 or not counter % save_result_every_n_batches or \
                            (0 <= counter < 10_000 and not counter % 1000) or counter == counter_init:
