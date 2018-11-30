@@ -706,6 +706,10 @@ def main():
                         except:
                             print("Write to log failed")
 
+                    #Save the model
+                    saver.save(sess, save_path=model_dir+"model/model.ckpt", global_step=counter)
+                    save_counter = counter
+
                 #Final save at the end of training
                 saver.save(sess, save_path=model_dir, global_step=counter)
                 quit() #Ends script
